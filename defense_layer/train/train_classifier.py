@@ -37,7 +37,7 @@ GITHUB_RAW_BASE = (
     "datasets/injection_classifier"
 )
 MODEL_NAMES = ["microsoft/deberta-v3-small", "microsoft/deberta-v3-base"]
-HF_REPO_PREFIX = "canary-deberta"
+HF_REPO_PREFIX = "canary"
 OUTPUT_DIR = "/kaggle/working"
 
 
@@ -140,14 +140,26 @@ def train_one_model(
     # NOTE: `eval_strategy` is the current (transformers>=4.4x) param
     # name; older versions used `evaluation_strategy`. If this errors on
     # Kaggle's image, that's the first thing to check.
+    #
+    # warmup_ratio + 5 epochs (up from a warmup-less 3): the first real
+    # run showed both models oscillating between "predict everything
+    # clean" and "predict everything injection" for their first 2
+    # epochs (deberta-v3-base never escaped that in 3 epochs/75 total
+    # steps) - a classic too-high-effective-LR-with-no-warmup pattern,
+    # worse for the larger model. save_total_limit=1 also fixes an
+    # unrelated problem: without it, `kaggle kernels output` pulls every
+    # epoch's full checkpoint for both models (5GB+), most of which
+    # nobody needs once training's done.
     args = TrainingArguments(
         output_dir=f"{OUTPUT_DIR}/{short_name}",
-        num_train_epochs=3,
+        num_train_epochs=5,
         per_device_train_batch_size=16,
         per_device_eval_batch_size=32,
         learning_rate=2e-5,
+        warmup_ratio=0.1,
         eval_strategy="epoch",
         save_strategy="epoch",
+        save_total_limit=1,
         load_best_model_at_end=True,
         metric_for_best_model="f1",
         logging_steps=10,
