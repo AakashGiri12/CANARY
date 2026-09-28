@@ -39,21 +39,43 @@ HF_REPO_PREFIX = "canary-deberta"
 OUTPUT_DIR = "/kaggle/working"
 
 
+HF_TOKEN_DATASET_PATH = "/kaggle/input/canary-hf-token/hf_token.txt"
+
+
 def get_hf_token() -> str:
-    """Kaggle Secret named HF_TOKEN when running as a Kaggle kernel; an
-    HF_TOKEN env var otherwise (e.g. local debugging, Colab)."""
+    """Three ways to supply the HF token, tried in order:
+
+    1. A private Kaggle Dataset mounted at HF_TOKEN_DATASET_PATH. This is
+       the primary path: UserSecretsClient().get_secret() is documented
+       to fail with HTTP 400 on kernels triggered via `kaggle kernels
+       push` (the API), even when the secret is correctly attached in
+       the UI - it's only reliable for interactive browser-triggered
+       runs. See https://www.kaggle.com/product-feedback/467871
+    2. Kaggle Secrets (kept for interactive/manual runs, where it does
+       work).
+    3. An HF_TOKEN env var (local debugging, Colab, etc).
+    """
+    if os.path.exists(HF_TOKEN_DATASET_PATH):
+        with open(HF_TOKEN_DATASET_PATH) as f:
+            return f.read().strip()
+
     try:
         from kaggle_secrets import UserSecretsClient
 
-        return UserSecretsClient().get_secret("HF_TOKEN")
-    except ImportError:
-        token = os.environ.get("HF_TOKEN")
-        if not token:
-            raise RuntimeError(
-                "No HF token found: expected a Kaggle Secret named HF_TOKEN, "
-                "or an HF_TOKEN environment variable when running outside Kaggle."
-            )
-        return token
+        token = UserSecretsClient().get_secret("HF_TOKEN")
+        if token:
+            return token
+    except Exception:
+        pass
+
+    token = os.environ.get("HF_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "No HF token found. Expected one of: a private Kaggle Dataset "
+            f"mounted at {HF_TOKEN_DATASET_PATH}, a Kaggle Secret named "
+            "HF_TOKEN (interactive runs only), or an HF_TOKEN env var."
+        )
+    return token
 
 
 def load_splits() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:

@@ -17,32 +17,54 @@ happens entirely on Kaggle.
   accuracy/precision/recall/F1 on val and held_out, pushes each to
   `<hf-username>/canary-deberta-<size>` (private), writes a
   `training_results.json` summary.
-- `kernel-metadata.json` — Kaggle kernel config (`enable_gpu`,
-  `enable_internet`). Replace `<KAGGLE_USERNAME>` with your actual
-  Kaggle username before pushing.
+- `kernel-metadata.json` — Kaggle kernel config: `enable_gpu`,
+  `enable_internet`, and `dataset_sources` pointing at the private
+  `canary-hf-token` dataset (see below).
 
-## One-time setup: HF token as a Kaggle Secret
+## One-time setup: HF token
 
-Kaggle Secrets can only be attached through the Kaggle web UI — there's
-no API/CLI way to inject them into a kernel push (that would defeat the
-point of a secret). So:
+Two things get tried in this repo's history, only one of which actually
+works for API-pushed kernels — worth knowing both:
 
-1. Get a **write**-scoped token at `huggingface.co/settings/tokens` (the
-   script needs write access to push trained weights).
-2. Push this kernel at least once (see below) so it exists on Kaggle.
-3. Open it at `kaggle.com/code/<username>/canary-classifier-training`.
-4. Top menu → **Add-ons** → **Secrets** → **Add a new secret**:
-   - Label: `HF_TOKEN` (exact — the script reads it by this name)
-   - Value: your HF token
-5. Save, then make sure the toggle next to `HF_TOKEN` is **on** for this
-   notebook specifically (Kaggle requires attaching a secret per-kernel
-   even though it's stored once on your account).
+- **Kaggle Secrets** (`kaggle_secrets.UserSecretsClient`) can only be
+  attached through the Kaggle web UI (Add-ons → Secrets on the kernel
+  editor page) — there's no API way to inject them on push. Worse: even
+  when attached, `get_secret()` is documented to fail with HTTP 400 on
+  kernels triggered via `kaggle kernels push` — it only reliably works
+  for interactive, browser-triggered runs
+  ([Kaggle product-feedback #467871](https://www.kaggle.com/product-feedback/467871)).
+  `train_classifier.py` still tries this as a fallback (so it works if
+  you ever run the notebook interactively), but don't rely on it for the
+  CLI-driven workflow below.
+- **A private Kaggle Dataset** containing just the token is what
+  actually works for `kaggle kernels push` runs — the kernel reads it as
+  a mounted file. This is the primary path `get_hf_token()` uses. Set it
+  up once:
+
+  ```bash
+  mkdir -p /tmp/canary_hf_token_upload
+  cat > /tmp/canary_hf_token_upload/dataset-metadata.json <<'JSON'
+  {"title": "canary-hf-token", "id": "<username>/canary-hf-token", "licenses": [{"name": "CC0-1.0"}]}
+  JSON
+  printf '%s' '<your-hf-write-token>' > /tmp/canary_hf_token_upload/hf_token.txt
+  chmod 600 /tmp/canary_hf_token_upload/hf_token.txt
+
+  kaggle datasets create -p /tmp/canary_hf_token_upload   # private by default
+  ```
+
+  Note the filename is `dataset-metadata.json` (singular) — Kaggle's own
+  `--help` text says `datasets-metadata.json` (plural), which is wrong
+  and will fail with "Metadata file not found".
+
+  Get the token itself at `huggingface.co/settings/tokens` with **Write**
+  access (the script needs it to push trained weights).
 
 ## Running it
 
 ```bash
 pip install kaggle   # once
-# ~/.kaggle/kaggle.json must exist (Kaggle -> Settings -> API -> Create New Token)
+# ~/.kaggle/access_token must exist (Kaggle -> Settings -> API -> Create New Token
+# gives you a one-line command that writes this file directly)
 
 cd defense_layer/train
 kaggle kernels push          # uploads + triggers a run

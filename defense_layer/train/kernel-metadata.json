@@ -7,7 +7,7 @@
   "is_private": true,
   "enable_gpu": true,
   "enable_internet": true,
-  "dataset_sources": [],
+  "dataset_sources": ["aakashgiri1202/canary-hf-token"],
   "competition_sources": [],
   "kernel_sources": []
 }
