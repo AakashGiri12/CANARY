@@ -1,0 +1,63 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+.turbo/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Model weight caches ---
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.ckpt
+.cache/huggingface/
+huggingface_cache/
+models_cache/
+.chroma/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Logs / misc ---
+*.log
+logs/
+.terraform/
+*.tfstate
+*.tfstate.backup
+.celery/
