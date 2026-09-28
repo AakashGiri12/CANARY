@@ -3,10 +3,11 @@ pushes both to a private Hugging Face Hub repo (build order step 5).
 
 Runs on Kaggle's free GPU — see defense_layer/train/README.md for the
 push/run workflow. NOT executed locally: this repo's Intel Mac dev
-laptop can't install torch (see the `ml` extra note in pyproject.toml),
-so this script has been written carefully against standard HF
-Transformers patterns but not run-tested. Treat the first real Kaggle
-run as the actual verification, and watch its logs closely.
+laptop can't install torch (see the `ml` extra note in pyproject.toml).
+First real Kaggle run caught a real bug (Trainer had no data collator,
+so it couldn't batch variable-length tokenized sequences - fixed by
+adding DataCollatorWithPadding); that's what run-testing on Kaggle is
+for, since nothing here can be verified locally beforehand.
 
 Reads train.csv/val.csv/held_out.csv straight from this repo's GitHub
 raw URLs (kernel-metadata.json enables internet access) rather than
@@ -26,6 +27,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
+    DataCollatorWithPadding,
     Trainer,
     TrainingArguments,
 )
@@ -128,6 +130,7 @@ def train_one_model(
     print(f"\n=== training {model_name} ===")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
+    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     train_ds = to_hf_dataset(train_df, tokenizer)
     val_ds = to_hf_dataset(val_df, tokenizer)
@@ -157,6 +160,7 @@ def train_one_model(
         train_dataset=train_ds,
         eval_dataset=val_ds,
         compute_metrics=compute_metrics,
+        data_collator=data_collator,
     )
 
     trainer.train()
