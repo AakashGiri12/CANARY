@@ -1,0 +1,36 @@
+# Local dev only. Production Postgres/Redis are Neon/Supabase and Upstash
+# (free tier) per the root CLAUDE.md — this exists so development doesn't
+# require touching cloud services.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: canary-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: canary
+      POSTGRES_PASSWORD: canary
+      POSTGRES_DB: canary
+    ports:
+      - "5432:5432"
+    volumes:
+      - canary_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U canary -d canary"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: canary-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  canary_pgdata:
