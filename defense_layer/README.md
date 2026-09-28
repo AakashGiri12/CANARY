@@ -27,3 +27,10 @@ Two kinds of defense, each a distinct Eval Harness / Pareto configuration:
 
 Run `python3 -m eval_harness.run` to see it evaluated against the
 Attack Engine's static library — first Pareto data point.
+
+- `train/` — build order step 5: fine-tunes `deberta-v3-small` and
+  `deberta-v3-base` on Kaggle's free GPU against
+  `datasets/injection_classifier/`, pushes both to a private HF Hub
+  repo. See `train/README.md` for the full workflow (including the
+  one-time Kaggle Secret setup for the HF token). Not run locally — this
+  repo's Intel Mac can't install torch.
