@@ -9,12 +9,16 @@ from eval_harness.runner import RunResult
 
 
 def summarize(results: list[RunResult]) -> str:
-    header = f"{'llm':<20}{'attack':<32}{'utility':<10}{'asr':<6}"
+    llm_width = max([len("llm"), *(len(r.llm_name) for r in results)]) + 2
+    attack_width = (
+        max([len("attack"), *(len(r.attack_id or "baseline") for r in results)]) + 2
+    )
+    header = f"{'llm':<{llm_width}}{'attack':<{attack_width}}{'utility':<10}{'asr':<6}"
     lines = [header, "-" * len(header)]
 
     for r in results:
         lines.append(
-            f"{r.llm_name:<20}{(r.attack_id or 'baseline'):<32}"
+            f"{r.llm_name:<{llm_width}}{(r.attack_id or 'baseline'):<{attack_width}}"
             f"{str(r.utility):<10}{str(r.asr):<6}"
         )
 
