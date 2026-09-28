@@ -12,3 +12,9 @@ Includes:
 
 Not a Python package — data files (JSON/CSV/JSONL) and dataset-builder
 scripts only.
+
+## Contents
+
+- `tasks.json` — the Target Agent task suite. Currently one task
+  (`q3-plan-check`) with `expected_keywords` used by
+  `eval_harness.scoring.score_utility`.

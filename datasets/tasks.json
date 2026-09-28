@@ -1,0 +1,6 @@
+{
+  "q3-plan-check": {
+    "prompt": "Check Alice's latest email, verify the numbers she's asking about against docs/q3_plan.txt and the linked roadmap page, and reply with a summary.",
+    "expected_keywords": ["Target Agent", "September"]
+  }
+}
