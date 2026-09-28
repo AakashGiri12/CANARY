@@ -9,11 +9,12 @@ from langgraph.graph import END, START, StateGraph
 from target_agent.llm import FinalAnswerAction, LLMClient, ToolCallAction
 from target_agent.logging import get_run_logger
 from target_agent.state import AgentState
-from target_agent.tools import TOOLS, ToolError, tool_specs_for_llm
+from target_agent.tools import TOOLS, ToolError, ToolSpec, tool_specs_for_llm
 
 
-def build_graph(llm: LLMClient):
-    tool_specs = tool_specs_for_llm()
+def build_graph(llm: LLMClient, tools: dict[str, ToolSpec] | None = None):
+    tool_registry = tools if tools is not None else TOOLS
+    tool_specs = tool_specs_for_llm(tool_registry)
 
     def agent_node(state: AgentState) -> dict:
         logger = get_run_logger(state["run_id"])
@@ -46,7 +47,7 @@ def build_graph(llm: LLMClient):
         logger = get_run_logger(state["run_id"])
         last = state["messages"][-1]
         tool_name, args = last["tool"], last.get("args", {})
-        spec = TOOLS.get(tool_name)
+        spec = tool_registry.get(tool_name)
         try:
             if spec is None:
                 raise ToolError(f"unknown tool: {tool_name}")
