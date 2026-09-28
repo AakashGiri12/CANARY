@@ -153,9 +153,22 @@ def train_one_model(
     # (DeBERTa-v3 recipes commonly need less than 2e-5) is the standard
     # fix. warmup_ratio stays: the very first run (3 epochs, no warmup)
     # showed real oscillation/underfitting too, just not full divergence.
+    #
+    # No save_total_limit: run 3 (fp32 fix applied) showed deberta-v3-
+    # small hit F1=1.0 at epoch 1, then degraded epochs 2-5 - but the
+    # final reported metrics matched NONE of the in-training epoch
+    # numbers, meaning load_best_model_at_end did not actually restore
+    # epoch 1's weights. save_total_limit=1 is a known way to lose that
+    # guarantee across transformers versions (the "protect the best
+    # checkpoint from eviction" logic has version-dependent edge cases).
+    # Removing the limit costs nothing here since results are fetched
+    # via --file-pattern (never downloading the checkpoints). Also back
+    # to 3 epochs: both runs show performance peaking early (epoch 1-2)
+    # and degrading with more training on this small dataset - 5 epochs
+    # wasn't helping either model.
     args = TrainingArguments(
         output_dir=f"{OUTPUT_DIR}/{short_name}",
-        num_train_epochs=5,
+        num_train_epochs=3,
         per_device_train_batch_size=16,
         per_device_eval_batch_size=32,
         learning_rate=1e-5,
@@ -166,7 +179,6 @@ def train_one_model(
         seed=42,
         eval_strategy="epoch",
         save_strategy="epoch",
-        save_total_limit=1,
         load_best_model_at_end=True,
         metric_for_best_model="f1",
         logging_steps=10,
