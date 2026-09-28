@@ -141,22 +141,29 @@ def train_one_model(
     # name; older versions used `evaluation_strategy`. If this errors on
     # Kaggle's image, that's the first thing to check.
     #
-    # warmup_ratio + 5 epochs (up from a warmup-less 3): the first real
-    # run showed both models oscillating between "predict everything
-    # clean" and "predict everything injection" for their first 2
-    # epochs (deberta-v3-base never escaped that in 3 epochs/75 total
-    # steps) - a classic too-high-effective-LR-with-no-warmup pattern,
-    # worse for the larger model. save_total_limit=1 also fixes an
-    # unrelated problem: without it, `kaggle kernels output` pulls every
-    # epoch's full checkpoint for both models (5GB+), most of which
-    # nobody needs once training's done.
+    # fp16=False/bf16=False is load-bearing, not a style choice: with
+    # warmup_ratio added (below) and 5 epochs, both models' grad_norm
+    # went 17 -> 104 -> 186 -> nan within a few dozen steps, eval_loss
+    # following it to nan, both models collapsing to predicting one
+    # class for everything. This is a well-documented DeBERTa-v3 failure
+    # mode under fp16 (its ELECTRA-style shared-embedding architecture is
+    # numerically unstable there) - and Kaggle's GPU images often
+    # auto-enable mixed precision via a default accelerate config even
+    # though fp16 was never set True here. Forcing fp32 plus a lower LR
+    # (DeBERTa-v3 recipes commonly need less than 2e-5) is the standard
+    # fix. warmup_ratio stays: the very first run (3 epochs, no warmup)
+    # showed real oscillation/underfitting too, just not full divergence.
     args = TrainingArguments(
         output_dir=f"{OUTPUT_DIR}/{short_name}",
         num_train_epochs=5,
         per_device_train_batch_size=16,
         per_device_eval_batch_size=32,
-        learning_rate=2e-5,
+        learning_rate=1e-5,
         warmup_ratio=0.1,
+        fp16=False,
+        bf16=False,
+        max_grad_norm=1.0,
+        seed=42,
         eval_strategy="epoch",
         save_strategy="epoch",
         save_total_limit=1,
