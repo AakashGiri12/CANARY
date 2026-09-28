@@ -16,13 +16,20 @@ dependencies = [
     "psycopg2-binary>=2.9",
     "pgvector>=0.3",
     "structlog>=24.1",
-    "sentence-transformers>=3.0",
-    "transformers>=4.44",
+    "openai>=1.40",
     "pydantic>=2.8",
     "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
+# Torch-dependent. Recent PyTorch has dropped Intel Mac wheels (see root
+# CLAUDE.md), so this extra is NOT installed on the Intel dev laptop — only
+# on the Oracle ARM VM (embedding inference) and Kaggle/Colab (classifier
+# training). Local unit tests mock embeddings instead of installing this.
+ml = [
+    "sentence-transformers>=3.0",
+    "transformers>=4.44",
+]
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",

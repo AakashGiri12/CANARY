@@ -53,6 +53,7 @@ models_cache/
 *.swo
 .DS_Store
 Thumbs.db
+.claude/settings.local.json
 
 # --- Logs / misc ---
 *.log
