@@ -59,6 +59,21 @@ resource "google_pubsub_topic" "budget_alerts" {
   name = "canary-budget-alerts"
 }
 
+# Confirmed correct identity (not a guess): after the budget was created
+# through the Console's "Connect a Pub/Sub topic" flow, `gcloud pubsub
+# topics get-iam-policy` showed this exact binding already granted by
+# that flow. Managing it here too is a safe no-op against what already
+# exists (IAM binding grants are idempotent) - it just keeps Terraform
+# accurate about what the real infrastructure requires, now that the
+# identity is verified rather than guessed. The earlier guess
+# (cloud-billing-budgets@system.gserviceaccount.com) was confirmed wrong
+# by a real "service account does not exist" error - this is not that.
+resource "google_pubsub_topic_iam_member" "billing_publisher" {
+  topic  = google_pubsub_topic.budget_alerts.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:billing-budget-alert@system.gserviceaccount.com"
+}
+
 # The budget itself is deliberately NOT managed here — see
 # billing-guardrail/README.md "Creating the budget (manual step)".
 # Three real, distinct API errors on google_billing_budget with

@@ -14,16 +14,26 @@ It's deliberately a separate Terraform root (own state, own apply) from
 `infra/terraform/` so it protects the account independently of that
 VM's lifecycle — destroying the VM stack doesn't touch this.
 
-**Status: deployed AND test-fired for real.** Not just `validate`/`plan`
-— see "What actually happened" below for the deploy, and "Test-fire"
-below for the live run. Confirmed end to end on 2026-09-29: published a
-synthetic budget-breach message, the function ran, logged `cost (150) >=
-budget (100) — acting now`, then `billing disabled for canary-510014`,
-finished in ~16s, and `gcloud billing projects describe` independently
-confirmed `billingEnabled: false`. Billing was re-enabled immediately
-after via `gcloud billing projects link` (also confirmed). Terraform
-manages everything except the budget itself, which is created manually
-through the Console — see "Creating the budget" below for why.
+**Status: fully deployed, budget created, and test-fired for real.** Not
+just `validate`/`plan` — see "What actually happened" below for the
+deploy, and "Test-fire" below for the live run. Confirmed end to end on
+2026-09-29: published a synthetic budget-breach message, the function
+ran, logged `cost (150) >= budget (100) — acting now`, then `billing
+disabled for canary-510014`, finished in ~16s, and `gcloud billing
+projects describe` independently confirmed `billingEnabled: false`.
+Billing was re-enabled immediately after via `gcloud billing projects
+link` (also confirmed). The budget itself is created through the Console
+(₹7000 target, scoped to `canary-510014` only — not "All projects",
+since the function only acts on that one project), linked to the
+`canary-budget-alerts` topic; after creating it, `gcloud pubsub topics
+get-iam-policy` confirmed the Console auto-granted
+`billing-budget-alert@system.gserviceaccount.com` publisher access on
+the topic — the identity that earlier attempts to set this up in
+Terraform had guessed wrong twice. That grant is now also captured in
+Terraform (`google_pubsub_topic_iam_member.billing_publisher`, applied
+as a safe idempotent no-op against what the Console already created), so
+Terraform is accurate again even though the budget object itself stays
+Console-managed.
 
 ## What actually happened deploying this
 
@@ -61,39 +71,38 @@ successfully and is confirmed in Terraform state (`terraform plan`
 reports "No changes"): the Pub/Sub topic, the Cloud Function, the
 service account, both IAM grants, all required APIs.
 
-## Creating the budget (manual step — do this)
+## The budget (created manually — done)
 
-The budget resource itself hit a wall: three more real, distinct errors
-(quota project on this specific resource, then a vague "Error 400:
-Request contains an invalid argument" once the previous two were fixed).
-Traced the 400 to a missing `pubsub.publisher` grant for Cloud Billing's
-notification agent on the topic — a real, documented requirement
-(confirmed via search of a known `hashicorp/terraform-provider-google`
-issue matching this exact symptom). But the agent's exact service
-account identity turned out to be **undocumented even in Google's own
-official docs** — fetched the docs page directly to check, not just
-searched; it says permission is required but never names who to grant it
-to. Guessed once (`cloud-billing-budgets@system.gserviceaccount.com`) —
-confirmed wrong: "Service account ... does not exist."
+The budget resource itself hit a wall in Terraform: three more real,
+distinct errors (quota project on this specific resource, then a vague
+"Error 400: Request contains an invalid argument" once the previous two
+were fixed). Traced the 400 to a missing `pubsub.publisher` grant for
+Cloud Billing's notification agent on the topic — a real, documented
+requirement (confirmed via search of a known
+`hashicorp/terraform-provider-google` issue matching this exact
+symptom). But the agent's exact service account identity turned out to
+be **undocumented even in Google's own official docs** — fetched the
+docs page directly to check, not just searched; it says permission is
+required but never names who to grant it to. Guessed once
+(`cloud-billing-budgets@system.gserviceaccount.com`) — confirmed wrong:
+"Service account ... does not exist."
 
-Rather than guess a third time, the budget is created through the
-**Console**, whose "Connect a Pub/Sub topic" flow is documented to
-handle that grant automatically:
+Rather than guess a third time, the budget was created through the
+**Console** instead, whose "Connect a Pub/Sub topic" flow handled that
+grant automatically (verified after the fact — see "Status" above):
 
-1. Console → Billing → **Budgets & Alerts** → **Create Budget**
-2. Scope: this project (`canary-510014`)
-3. Amount: **$100** (matches `budget_amount_usd` in `variables.tf` — the
-   Terraform variable is kept as the reference value even though nothing
-   reads it anymore, so it isn't just a number typed once and forgotten)
-4. Actions → check **"Connect a Pub/Sub topic to this budget"** → select
-   the existing topic **`canary-budget-alerts`** (already created by
-   Terraform — don't create a new one)
-5. Set thresholds at 50%, 90%, 100% of the budget amount
-6. Save
-
-Terraform stays authoritative for everything it could actually create
-without guessing at undocumented internals; the budget is the one piece
-the Console can do more reliably.
+- Scope: **`canary-510014` only** (not "All projects" — the kill-switch
+  function only acts on this one project, so tracking spend elsewhere
+  would create a mismatch between what's measured and what can respond)
+- Amount: **₹7000** (~24% of the ₹28,664 total free-trial credit —
+  conservative for a first, freshly-tested threshold; `budget_amount_usd`
+  in `variables.tf` is stale/informational now that the real amount is
+  in ₹, not $)
+- Thresholds: 50/90/100%, triggered on **Actual** spend (not forecasted)
+- Pub/Sub topic: **`canary-budget-alerts`** (the one Terraform created)
+- Budget type: **Alerts only** (not Spend Cap — Spend Cap is still
+  limited to a small set of services and doesn't cover Compute Engine,
+  confirmed directly in the Console before choosing Alerts-only)
 
 ## Test-fire it before trusting it — this is not optional
 
@@ -134,18 +143,21 @@ doesn't actually get disabled, permissions errors in the logs) —
 
 ## What's still genuinely unverified
 
-1. **The budget itself** — created manually per above. The Function →
-   Pub/Sub → billing-disable path is now confirmed working for real (see
-   "Status" above); what's NOT yet verified is the budget → Pub/Sub link
-   specifically, since the test-fire bypasses the budget and publishes
-   directly to the topic. Worth a real (or at least closer-to-real)
-   end-to-end check once you're comfortable — e.g., temporarily setting
-   the budget very low and confirming a real cost signal reaches the
-   function on its own, without a manual publish.
+1. **The full automatic path, end to end** — every individual link is
+   now confirmed: the Function → billing-disable path (real test-fire),
+   and the budget → Pub/Sub IAM wiring (`get-iam-policy` showed the
+   Console's auto-granted binding). What's NOT yet observed is a *real*
+   cost signal flowing budget → Pub/Sub → function on its own, since
+   that needs actual billed usage to accrue (the Console itself notes
+   actual costs can take up to 24h to show up) and nothing has spent
+   money yet. Worth treating the first real GPU VM session as that final
+   check — watch for it working, don't just assume it will because the
+   pieces individually check out.
 2. **`credit_types` isn't set on the budget** — since it's created via
    Console rather than Terraform, double check whichever credit-tracking
    option the Console defaults to actually tracks raw usage cost (what
-   draws down the $300 credit), not cost *after* the credit is applied.
+   draws down the free-trial credit), not cost *after* the credit is
+   applied.
 3. **`google_cloudfunctions_function` (Gen1)** — Google has been pushing
    Gen2 (Cloud Run-based) functions; Gen1 still works for this pattern
    as of this writing but may eventually need migrating.
