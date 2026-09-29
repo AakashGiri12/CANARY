@@ -14,10 +14,16 @@ It's deliberately a separate Terraform root (own state, own apply) from
 `infra/terraform/` so it protects the account independently of that
 VM's lifecycle — destroying the VM stack doesn't touch this.
 
-**Status: deployed and applied for real** (not just `validate`/`plan` —
-see "What actually happened" below). Terraform manages everything except
-the budget itself, which is created manually through the Console — see
-"Creating the budget" below for why.
+**Status: deployed AND test-fired for real.** Not just `validate`/`plan`
+— see "What actually happened" below for the deploy, and "Test-fire"
+below for the live run. Confirmed end to end on 2026-09-29: published a
+synthetic budget-breach message, the function ran, logged `cost (150) >=
+budget (100) — acting now`, then `billing disabled for canary-510014`,
+finished in ~16s, and `gcloud billing projects describe` independently
+confirmed `billingEnabled: false`. Billing was re-enabled immediately
+after via `gcloud billing projects link` (also confirmed). Terraform
+manages everything except the budget itself, which is created manually
+through the Console — see "Creating the budget" below for why.
 
 ## What actually happened deploying this
 
@@ -128,14 +134,14 @@ doesn't actually get disabled, permissions errors in the logs) —
 
 ## What's still genuinely unverified
 
-1. **The budget itself** — created manually per above, not yet
-   confirmed to actually fire and publish correctly when real spend
-   crosses the threshold. The test-fire above verifies the
-   function/Pub/Sub/billing-disable path works; it does not verify the
-   budget → Pub/Sub link specifically, since it bypasses the budget
-   entirely. Worth a real (or at least closer-to-real) end-to-end check
-   once you're comfortable — e.g., temporarily setting the budget very
-   low and confirming a real cost signal reaches the function.
+1. **The budget itself** — created manually per above. The Function →
+   Pub/Sub → billing-disable path is now confirmed working for real (see
+   "Status" above); what's NOT yet verified is the budget → Pub/Sub link
+   specifically, since the test-fire bypasses the budget and publishes
+   directly to the topic. Worth a real (or at least closer-to-real)
+   end-to-end check once you're comfortable — e.g., temporarily setting
+   the budget very low and confirming a real cost signal reaches the
+   function on its own, without a manual publish.
 2. **`credit_types` isn't set on the budget** — since it's created via
    Console rather than Terraform, double check whichever credit-tracking
    option the Console defaults to actually tracks raw usage cost (what
