@@ -67,6 +67,7 @@ resource "google_compute_instance" "vllm" {
     install-nvidia-driver = "True"
     vllm-model            = var.vllm_model
     hf-token              = var.huggingface_token
+    max-runtime-hours     = tostring(var.max_runtime_hours)
   }
 
   metadata_startup_script = file("${path.module}/startup-script.sh")

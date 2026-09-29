@@ -82,3 +82,29 @@ variable "huggingface_token" {
   default     = ""
   sensitive   = true
 }
+
+variable "max_runtime_hours" {
+  description = <<-EOT
+    HARD cost ceiling: the VM shuts itself down via `shutdown -h` this
+    many hours after boot, no matter what — regardless of whether GCP's
+    Spend Cap/budget alerts fire, regardless of whether you remember to
+    run terraform destroy. This is the primary guardrail, not the
+    billing-side ones: GCP's native Spend Cap only covers services
+    already active on the billing account (confirmed by checking the
+    console — Compute Engine wasn't even selectable), so it can't
+    protect against this VM's own cost. A self-contained shutdown timer
+    needs no billing API, no IAM permissions, nothing that could be
+    silently misconfigured - just a plain Linux command.
+
+    Default (2h) is deliberately conservative for a first real run.
+    Raise it once you trust the setup. Cost math: at roughly
+    $0.15-0.20/hr for a spot T4 + n1-standard-4 (UNVERIFIED — check
+    GCP's pricing calculator for current numbers), 2 hours is well
+    under $1 of compute even in the worst case of total inattention.
+    Shutdown stops compute/GPU billing; the persistent disks keep
+    billing at a much lower storage rate regardless (see the boot_disk_*
+    and model_cache_disk_size_gb cost note in the README).
+  EOT
+  type    = number
+  default = 2
+}
