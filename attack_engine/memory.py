@@ -80,6 +80,53 @@ def record_outcome(
         return memory.id
 
 
+def get_or_create_attack_by_name(
+    *,
+    name: str,
+    target_key: str,
+    payload_text: str,
+    success_marker: str,
+    generation: str = "seed",
+) -> uuid.UUID:
+    """Idempotent: returns the existing row's id if one with this name
+    already exists, else inserts a new one."""
+    with get_session() as session:
+        existing = session.scalars(select(Attack).where(Attack.name == name)).first()
+        if existing is not None:
+            return existing.id
+        attack = Attack(
+            name=name,
+            target_key=target_key,
+            payload_text=payload_text,
+            success_marker=success_marker,
+            generation=generation,
+        )
+        session.add(attack)
+        session.commit()
+        session.refresh(attack)
+        return attack.id
+
+
+def seed_static_attacks() -> dict[str, uuid.UUID]:
+    """Idempotently insert attack_engine.library.STATIC_ATTACKS into the
+    `attacks` table (keyed by AttackSpec.id, stored as Attack.name), so
+    static and adaptively-generated attacks share one table and `runs`
+    rows can FK to either. Returns {AttackSpec.id (str) -> DB row UUID}.
+    """
+    from attack_engine.library import STATIC_ATTACKS
+
+    return {
+        attack.id: get_or_create_attack_by_name(
+            name=attack.id,
+            target_key=attack.target_key,
+            payload_text=attack.payload_text,
+            success_marker=attack.success_marker,
+            generation="seed",
+        )
+        for attack in STATIC_ATTACKS
+    }
+
+
 def clear_memory(*, target_model: str, defense_config: str) -> int:
     """Delete all attack_memory rows for a (target_model, defense_config)
     pair. Used by tests and demo entrypoints for reproducible runs."""

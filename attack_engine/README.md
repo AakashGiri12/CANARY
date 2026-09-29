@@ -20,15 +20,20 @@ Two layers:
   breakout, urgency pretext), each poisoning one target_agent tool
   fixture and declaring a `success_marker` for ASR scoring. Run against
   the Target Agent via `eval_harness.run`.
-- `db.py` — SQLAlchemy models (`Attack`, `AttackMemory`) matching the
-  root CLAUDE.md's schema. Connects to local Docker Postgres by default;
-  set `DATABASE_URL` for a real instance.
+- `db.py` — SQLAlchemy models for the whole project's shared Postgres:
+  `Attack`/`AttackMemory` (step 4) and `Run`/`Score` (step 6, structured
+  lineage — read/written by `api.tasks`' Celery pipeline). Connects to
+  local Docker Postgres by default; set `DATABASE_URL` for a real
+  instance.
 - `embeddings.py` — `Embedder` interface: `MockEmbedder` (deterministic,
   no torch, used everywhere today) and `MiniLMEmbedder` (the real thing,
   behind the `ml` extra — runs on the Oracle VM, not this laptop).
 - `memory.py` — `record_attack`/`record_outcome`/`retrieve_similar`
   (pgvector cosine-distance top-k, filtered by target_model/
-  defense_config) / `clear_memory`.
+  defense_config) / `clear_memory` / `seed_static_attacks` (idempotently
+  inserts `library.STATIC_ATTACKS` into the `attacks` table, so static
+  and adaptively-generated attacks share one table and `runs` rows can
+  FK to either).
 - `mutate.py` — the "LLM mutator" stand-in: rotates a fixed set of
   delimiter framings, skipping ones retrieved history shows were
   blocked. Not a real generative mutator yet — see its docstring.

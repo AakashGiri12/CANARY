@@ -1,5 +1,19 @@
 from attack_engine.embeddings import MockEmbedder
-from attack_engine.memory import clear_memory, record_outcome, retrieve_similar
+from attack_engine.library import STATIC_ATTACKS
+from attack_engine.memory import (
+    clear_memory,
+    record_outcome,
+    retrieve_similar,
+    seed_static_attacks,
+)
+
+
+def test_seed_static_attacks_covers_all_and_is_idempotent():
+    first = seed_static_attacks()
+    assert set(first.keys()) == {a.id for a in STATIC_ATTACKS}
+
+    second = seed_static_attacks()
+    assert second == first  # same DB rows reused, not duplicated
 
 
 def test_record_and_retrieve_similar(unique_model_defense):

@@ -1,8 +1,10 @@
-"""SQLAlchemy models + session for the Attack Engine's persistence: the
-`attacks` table (structured lineage) and `attack_memory` (pgvector
-semantic retrieval), both in the same Postgres per the root CLAUDE.md
-("Memory / Knowledge base" — keeps metadata and embeddings joinable in
-one query, not a separate vector DB).
+"""SQLAlchemy models + session for the whole project's shared Postgres:
+`attacks` + `attack_memory` (pgvector semantic retrieval, build order
+step 4) and `runs` + `scores` (structured lineage, build order step 6),
+all in one database per the root CLAUDE.md ("Memory / Knowledge base" —
+keeps metadata and embeddings joinable in one query, not a separate
+vector DB). One shared module rather than splitting by which package
+happens to use a table, since they're genuinely the same database.
 
 Connects to local Docker Postgres by default (`infra/docker-compose.yml`)
 so development doesn't require the cloud Postgres (Neon/Supabase) to be
@@ -12,11 +14,19 @@ provisioned. Set DATABASE_URL to point at a real instance instead.
 from __future__ import annotations
 
 import os
-import uuid
-from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Column, DateTime, Float, ForeignKey, String, Text, create_engine, text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    String,
+    Text,
+    create_engine,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -66,6 +76,39 @@ class AttackMemory(Base):
     created_at = Column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False
     )
+
+
+class Run(Base):
+    """One Target Agent execution: (llm_name, task_id, attack_id,
+    defense_config). `id` is a deterministic string key (not a random
+    UUID) so resubmitting the same batch after a crash naturally maps
+    to the same row — that's what makes checkpointing/resumability
+    possible: Celery tasks check for an existing 'completed' row before
+    doing any work."""
+
+    __tablename__ = "runs"
+
+    id = Column(String, primary_key=True)
+    task_id = Column(String, nullable=False)
+    llm_name = Column(String, nullable=False)
+    defense_config = Column(String, nullable=False)
+    attack_id = Column(UUID(as_uuid=True), ForeignKey("attacks.id"), nullable=True)
+    status = Column(String, nullable=False, server_default="pending")  # pending|running|completed|failed
+    final_answer = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class Score(Base):
+    """Utility/ASR score for one completed Run."""
+
+    __tablename__ = "scores"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    run_id = Column(String, ForeignKey("runs.id"), nullable=False)
+    utility = Column(Boolean, nullable=False)
+    asr = Column(Boolean, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
 
 _engine = None
