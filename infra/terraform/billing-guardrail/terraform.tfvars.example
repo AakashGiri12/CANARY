@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars (gitignored — never commit real values) and fill in.
+
+project_id         = "your-gcp-project-id"
+billing_account_id = "XXXXXX-XXXXXX-XXXXXX" # from: gcloud billing accounts list
+budget_amount_usd  = 100

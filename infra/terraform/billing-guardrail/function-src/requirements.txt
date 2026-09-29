@@ -1,0 +1,2 @@
+google-cloud-billing>=1.13
+google-cloud-compute>=1.19
