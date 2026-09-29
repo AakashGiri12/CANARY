@@ -4,9 +4,10 @@ Infrastructure-as-code and local dev environment.
 
 - `docker-compose.yml` — local Postgres+pgvector and Redis for development
   without touching cloud services.
-- Terraform — lifecycle (including scripted teardown) for the GCP spot/
+- `terraform/` — lifecycle (including scripted teardown) for the GCP spot/
   preemptible T4 GPU VM used for LLM serving during eval runs. Not provisioned
-  permanently; spun up only for eval runs.
+  permanently; spun up only for eval runs. Written but not applied — see its
+  own README for what's unverified and what needs your action.
 - `alembic.ini` / `migrations/` — Alembic migrations for the shared Postgres
   schema: `attacks` + `attack_memory` (pgvector, step 4), and `runs` +
   `scores` (structured lineage, step 6) — the tables `api.tasks`'

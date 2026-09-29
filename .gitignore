@@ -62,4 +62,6 @@ logs/
 .terraform/
 *.tfstate
 *.tfstate.backup
+terraform.tfvars
+!terraform.tfvars.example
 .celery/

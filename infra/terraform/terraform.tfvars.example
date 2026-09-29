@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (gitignored — never commit real values) and fill in.
+
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+zone       = "us-central1-a"
+
+# Only needed for gated models (e.g. Llama 3.1). Leave unset for
+# ungated ones like the default Qwen2.5 AWQ model.
+# huggingface_token = "hf_..."
