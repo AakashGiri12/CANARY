@@ -9,11 +9,16 @@ terraform {
       source  = "hashicorp/archive"
       version = "~> 2.4"
     }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.11"
+    }
   }
 }
 
 provider "google" {
   project = var.project_id
+  region  = var.region
 }
 
 data "google_project" "this" {
@@ -27,50 +32,46 @@ data "google_project" "this" {
 resource "google_project_service" "required" {
   for_each = toset([
     "cloudbilling.googleapis.com",
+    "billingbudgets.googleapis.com", # distinct from cloudbilling.googleapis.com — missed this one, real error caught it
     "cloudfunctions.googleapis.com",
     "cloudbuild.googleapis.com",
     "pubsub.googleapis.com",
+    "artifactregistry.googleapis.com",
   ])
   project            = var.project_id
   service            = each.value
   disable_on_destroy = false
 }
 
+# Real error on first apply: Cloud Functions' build step couldn't read
+# the gcf-artifacts Artifact Registry repo ("Ensure the Cloud Functions
+# service account has artifactregistry.repositories.list/get") because
+# the default service agents' auto-provisioned IAM bindings for a
+# freshly-enabled API hadn't propagated yet — these three APIs were only
+# just enabled above, in the same apply. A fixed wait is a blunt fix, but
+# a reliable one for this known GCP eventual-consistency gap.
+resource "time_sleep" "api_propagation" {
+  depends_on      = [google_project_service.required]
+  create_duration = "90s"
+}
+
 resource "google_pubsub_topic" "budget_alerts" {
   name = "canary-budget-alerts"
 }
 
-# credit_types_treatment = EXCLUDE_ALL_CREDITS: track raw usage cost, not
-# cost net of the $300 trial credit. The credit draws down against raw
-# usage cost, so that's what needs to stay under budget_amount_usd — if
-# this tracked *post-credit* cost instead it wouldn't fire until you'd
-# already burned through the entire credit. UNVERIFIED against a live
-# account; the exact enum value is recalled from memory, not tested.
-resource "google_billing_budget" "guardrail" {
-  billing_account = var.billing_account_id
-  display_name    = "canary-hard-stop"
-
-  budget_filter {
-    projects               = ["projects/${data.google_project.this.number}"]
-    credit_types_treatment = "EXCLUDE_ALL_CREDITS"
-  }
-
-  amount {
-    specified_amount {
-      currency_code = "USD"
-      units         = tostring(var.budget_amount_usd)
-    }
-  }
-
-  threshold_rules { threshold_percent = 0.5 }
-  threshold_rules { threshold_percent = 0.9 }
-  threshold_rules { threshold_percent = 1.0 }
-
-  all_updates_rule {
-    pubsub_topic   = google_pubsub_topic.budget_alerts.id
-    schema_version = "1.0"
-  }
-}
+# The budget itself is deliberately NOT managed here — see
+# billing-guardrail/README.md "Creating the budget (manual step)".
+# Three real, distinct API errors on google_billing_budget with
+# all_updates_rule.pubsub_topic set (quota project, wrong IAM role name,
+# then a vague "invalid argument" traced to a missing pubsub.publisher
+# grant for Cloud Billing's notification agent) - and that agent's exact
+# service account identity turned out to be undocumented even in
+# Google's own official docs (checked directly, not assumed). The
+# Console's "Connect a Pub/Sub topic" budget flow is documented to
+# handle that grant automatically, so the budget is created there,
+# linked to the google_pubsub_topic.budget_alerts topic below - keeping
+# Terraform authoritative for everything it could actually create
+# without guessing at undocumented internals.
 
 resource "google_service_account" "killer" {
   account_id   = "canary-billing-killer"
@@ -97,18 +98,23 @@ resource "google_project_iam_member" "killer_project_role" {
   member  = "serviceAccount:${google_service_account.killer.email}"
 }
 
-# Disabling billing needs a permission granted at the BILLING ACCOUNT
-# level, not the project level — billing.resourceAssociations.delete,
-# which unlinks a project from its billing account.
-# roles/billing.projectManager is, per Google's docs, the narrowest
-# predefined role that includes it (short of a fully custom
-# billing-account-level role, which needs Billing Account Administrator
-# to even create — a bootstrapping problem not worth solving here).
-# UNVERIFIED against a live account.
+# Disabling billing needs billing.resourceAssociations.delete, granted
+# at the BILLING ACCOUNT level, to unlink a project from its billing
+# account. roles/billing.projectManager (tried first) doesn't exist as
+# an assignable role at all — real error: "Role roles/billing
+# .projectManager is not supported for this resource". Corrected via
+# search to roles/billing.admin (Billing Account Administrator) — the
+# actual predefined role Google's own reference tutorials for this exact
+# auto-disable-billing pattern use. It's broader than ideal (full billing
+# account admin, not just this one permission), but there's no narrower
+# predefined role, and creating a custom one at the billing-account level
+# itself needs Billing Account Administrator to create — a bootstrapping
+# problem not worth solving for a single-purpose service account with no
+# human login.
 resource "google_billing_account_iam_member" "killer_billing_role" {
   billing_account_id = var.billing_account_id
-  role               = "roles/billing.projectManager"
-  member             = "serviceAccount:${google_service_account.killer.email}"
+  role                = "roles/billing.admin"
+  member              = "serviceAccount:${google_service_account.killer.email}"
 }
 
 data "archive_file" "function_source" {
@@ -132,6 +138,7 @@ resource "google_storage_bucket_object" "function_source" {
 
 resource "google_cloudfunctions_function" "killer" {
   name        = "canary-billing-killer"
+  region      = var.region
   runtime     = "python312"
   entry_point = "stop_billing"
 
@@ -149,5 +156,5 @@ resource "google_cloudfunctions_function" "killer" {
     GCP_PROJECT_ID = var.project_id
   }
 
-  depends_on = [google_project_service.required]
+  depends_on = [time_sleep.api_propagation]
 }
