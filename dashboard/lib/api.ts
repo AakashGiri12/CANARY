@@ -58,6 +58,15 @@ export type ClassifierResultOut = {
   note: string;
 };
 
+export type HistoryEntryOut = {
+  run_id: string;
+  config_label: string;
+  attack_label: string;
+  blocked: boolean;
+  utility: boolean;
+  created_at: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, init);
   if (!res.ok) {
@@ -86,6 +95,10 @@ export function compareConfigs(): Promise<ComparePointOut[]> {
 
 export function classifierResults(): Promise<ClassifierResultOut[]> {
   return request("/api/classifier-results");
+}
+
+export function runsHistory(limit = 40): Promise<HistoryEntryOut[]> {
+  return request(`/api/runs/history?limit=${limit}`);
 }
 
 export function runAdaptive(

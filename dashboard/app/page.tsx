@@ -1,5 +1,6 @@
 import { ClassifierDefense } from "@/components/classifier-defense";
 import { ConfigComparison } from "@/components/config-comparison";
+import { RunsHistory } from "@/components/runs-history";
 import { ShieldBattle } from "@/components/shield-battle";
 
 export default function Home() {
@@ -37,8 +38,9 @@ export default function Home() {
         <ConfigComparison />
       </div>
 
-      <div className="relative z-10 w-full max-w-7xl">
+      <div className="relative z-10 grid w-full max-w-7xl grid-cols-1 items-start gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <ClassifierDefense />
+        <RunsHistory />
       </div>
     </div>
   );

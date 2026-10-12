@@ -15,15 +15,21 @@ eval_harness.llm_registry name (e.g. "deepseek") — see api/display.py.
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime, timezone
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy import desc, select
 
 from api.display import display_label
+from attack_engine.db import Attack, Run, Score, get_session
 from attack_engine.library import STATIC_ATTACKS
+from attack_engine.memory import seed_static_attacks
 from eval_harness.judge import judge_asr
-from eval_harness.llm_registry import LLM_FACTORIES
-from eval_harness.runner import run_static_eval
+from eval_harness.llm_registry import LLM_FACTORIES, defense_label
+from eval_harness.runner import RunResult, run_static_eval
 
 app = FastAPI(title="CANARY Eval API")
 
@@ -46,6 +52,49 @@ def _preview(attack_id: str | None) -> str | None:
     if text is None:
         return None
     return text if len(text) <= _PREVIEW_MAX_LEN else text[:_PREVIEW_MAX_LEN] + "…"
+
+
+_attack_uuids: dict[str, uuid.UUID] | None = None
+
+
+def _attack_uuid(attack_id_slug: str | None) -> uuid.UUID | None:
+    """Lazily seeds attack_engine.library.STATIC_ATTACKS into the
+    `attacks` table on first use (idempotent — get_or_create) and caches
+    the slug->UUID mapping for this process, so every live dashboard run
+    can FK to the same Attack rows api/tasks.py's Celery pipeline uses."""
+    global _attack_uuids
+    if attack_id_slug is None:
+        return None
+    if _attack_uuids is None:
+        _attack_uuids = seed_static_attacks()
+    return _attack_uuids.get(attack_id_slug)
+
+
+def _record_run(*, config: str, task_id: str, result: RunResult) -> None:
+    """Persists one live dashboard run to the same `runs`/`scores` tables
+    api/tasks.py's Celery pipeline writes to — this is what makes "history
+    of past runs" real instead of in-memory-only. Each call gets a fresh
+    UUID run_id (unlike the Celery pipeline's deterministic ids, which
+    exist for crash-resumability of a batch job, not for a demo history
+    log — reusing that scheme here would make repeated clicks on the same
+    config overwrite one row instead of accumulating history)."""
+    run_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        session.add(
+            Run(
+                id=run_id,
+                task_id=task_id,
+                llm_name=config,
+                defense_config=defense_label(config),
+                attack_id=_attack_uuid(result.attack_id),
+                status="completed",
+                final_answer=result.final_answer,
+                completed_at=now,
+            )
+        )
+        session.add(Score(run_id=run_id, utility=result.utility, asr=result.asr))
+        session.commit()
 
 
 class ConfigOut(BaseModel):
@@ -122,6 +171,15 @@ CLASSIFIER_RESULTS: list[ClassifierResultOut] = [
 ]
 
 
+class HistoryEntryOut(BaseModel):
+    run_id: str
+    config_label: str
+    attack_label: str
+    blocked: bool
+    utility: bool
+    created_at: str
+
+
 class GenerationOut(BaseModel):
     generation: int
     framing_index: int
@@ -165,6 +223,8 @@ def run_static(config: str) -> StaticRunOut:
         kwargs["score_asr_fn"] = judge_asr
 
     results = run_static_eval({config: LLM_FACTORIES[config]}, **kwargs)
+    for r in results:
+        _record_run(config=config, task_id="q3-plan-check", result=r)
 
     hits = [
         HitOut(
@@ -186,6 +246,39 @@ def run_static(config: str) -> StaticRunOut:
         asr_rate=asr_rate,
         utility_rate=utility_rate,
     )
+
+
+@app.get("/api/runs/history", response_model=list[HistoryEntryOut])
+def runs_history(limit: int = 40) -> list[HistoryEntryOut]:
+    """Real persisted history, not in-memory session state: every live
+    dashboard run (static-run, compare) is written to the same
+    `runs`/`scores` tables api/tasks.py's Celery pipeline uses (see
+    _record_run above) — this reads real Postgres state back, so it
+    survives a page reload or the API process restarting."""
+    with get_session() as session:
+        stmt = (
+            select(Run, Score, Attack)
+            .join(Score, Score.run_id == Run.id)
+            .outerjoin(Attack, Attack.id == Run.attack_id)
+            .order_by(desc(Run.created_at))
+            .limit(limit)
+        )
+        rows = session.execute(stmt).all()
+
+    entries: list[HistoryEntryOut] = []
+    for run, score, attack in rows:
+        attack_slug = attack.name if attack is not None else None
+        entries.append(
+            HistoryEntryOut(
+                run_id=run.id,
+                config_label=display_label(run.llm_name),
+                attack_label=_ATTACK_LABELS.get(attack_slug, "Baseline (no attack)"),
+                blocked=not score.asr,
+                utility=score.utility,
+                created_at=run.created_at.isoformat() if run.created_at else "",
+            )
+        )
+    return entries
 
 
 @app.get("/api/classifier-results", response_model=list[ClassifierResultOut])
@@ -213,6 +306,8 @@ def compare_all_configs() -> list[ComparePointOut]:
         if config.startswith("deepseek"):
             kwargs["score_asr_fn"] = judge_asr
         results = run_static_eval({config: LLM_FACTORIES[config]}, **kwargs)
+        for r in results:
+            _record_run(config=config, task_id="q3-plan-check", result=r)
         asr_rate = (
             sum(r.asr for r in results if r.attack_id is not None)
             / sum(1 for r in results if r.attack_id is not None)
