@@ -1,0 +1,26 @@
+# Render blueprint for api/main.py (build order step 7's API half).
+# Import this repo at render.com/select-repo and Render will pick this
+# up automatically ("New +" -> "Blueprint"). Env vars marked sync: false
+# must be filled in manually in Render's dashboard after creation — they
+# aren't committed here since they're secrets.
+#
+# Free tier note: this plan spins the service down after ~15 minutes of
+# inactivity. The first request after a cold start takes 30-60s to wake
+# it back up — hit /api/health a few minutes before a live demo.
+services:
+  - type: web
+    name: canary-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -e .
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CANARY_API_TOKEN
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

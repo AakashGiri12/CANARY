@@ -4,6 +4,14 @@
 // anything that imports it. See api/display.py for why.
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+// Shared-secret header for a deployed backend with CANARY_API_TOKEN set
+// (see api/main.py's require_token) — unset locally, where the backend
+// has no token configured either, so this header is simply absent and
+// the backend's check is a no-op. Note this is NOT real security: any
+// NEXT_PUBLIC_* value ships in the client JS bundle and is readable by
+// anyone who opens dev tools on the deployed site — it only stops a
+// leaked link from being casually clicked, not a deliberate attacker.
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN;
 
 export type ConfigOut = {
   key: string;
@@ -68,7 +76,11 @@ export type HistoryEntryOut = {
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, init);
+  const headers = new Headers(init?.headers);
+  if (API_TOKEN) {
+    headers.set("X-API-Token", API_TOKEN);
+  }
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (!res.ok) {
     throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status}`);
   }

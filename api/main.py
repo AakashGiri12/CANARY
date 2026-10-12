@@ -15,10 +15,11 @@ eval_harness.llm_registry name (e.g. "deepseek") — see api/display.py.
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import desc, select
@@ -33,12 +34,35 @@ from eval_harness.runner import RunResult, run_static_eval
 
 app = FastAPI(title="CANARY Eval API")
 
+# Comma-separated list, e.g. "http://localhost:3000,https://canary.vercel.app".
+# Defaults to local dev only so a deployed instance must explicitly opt in
+# a real origin rather than silently allowing everything.
+_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_API_TOKEN = os.environ.get("CANARY_API_TOKEN")
+
+
+def require_token(x_api_token: str | None = Header(default=None)) -> None:
+    """Minimal shared-secret gate for a publicly deployed instance — not
+    real auth (NEXT_PUBLIC_* env vars ship in the client JS bundle, so a
+    motivated reader can extract this token from the deployed site), just
+    enough friction to stop a leaked link from being casually clicked by
+    strangers and running up real DeepSeek API cost / writing junk into
+    Postgres. CANARY_API_TOKEN unset (the local-dev default) disables the
+    check entirely, so nothing changes for local development."""
+    if _API_TOKEN is None:
+        return
+    if x_api_token != _API_TOKEN:
+        raise HTTPException(status_code=401, detail="missing or invalid API token")
+
+
+protected = APIRouter(dependencies=[Depends(require_token)])
 
 _ATTACK_LABELS = {a.id: a.name for a in STATIC_ATTACKS}
 _ATTACK_PREVIEWS = {a.id: a.payload_text for a in STATIC_ATTACKS}
@@ -197,12 +221,12 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/api/configs", response_model=list[ConfigOut])
+@protected.get("/api/configs", response_model=list[ConfigOut])
 def list_configs() -> list[ConfigOut]:
     return [ConfigOut(key=name, label=display_label(name)) for name in LLM_FACTORIES]
 
 
-@app.get("/api/static-attacks", response_model=list[AttackOut])
+@protected.get("/api/static-attacks", response_model=list[AttackOut])
 def list_static_attacks() -> list[AttackOut]:
     return [
         AttackOut(id=a.id, label=a.name, payload_preview=_preview(a.id))
@@ -210,7 +234,7 @@ def list_static_attacks() -> list[AttackOut]:
     ]
 
 
-@app.post("/api/eval/static-run/{config}", response_model=StaticRunOut)
+@protected.post("/api/eval/static-run/{config}", response_model=StaticRunOut)
 def run_static(config: str) -> StaticRunOut:
     """Runs the no-attack baseline + every static attack once against
     `config`, in order, and returns per-attack blocked/breached + utility
@@ -248,7 +272,7 @@ def run_static(config: str) -> StaticRunOut:
     )
 
 
-@app.get("/api/runs/history", response_model=list[HistoryEntryOut])
+@protected.get("/api/runs/history", response_model=list[HistoryEntryOut])
 def runs_history(limit: int = 40) -> list[HistoryEntryOut]:
     """Real persisted history, not in-memory session state: every live
     dashboard run (static-run, compare) is written to the same
@@ -281,7 +305,7 @@ def runs_history(limit: int = 40) -> list[HistoryEntryOut]:
     return entries
 
 
-@app.get("/api/classifier-results", response_model=list[ClassifierResultOut])
+@protected.get("/api/classifier-results", response_model=list[ClassifierResultOut])
 def classifier_results() -> list[ClassifierResultOut]:
     """Real, offline-validated numbers from the trained Defense Layer
     classifier (build order step 5) — see CLASSIFIER_RESULTS above for
@@ -289,7 +313,7 @@ def classifier_results() -> list[ClassifierResultOut]:
     return CLASSIFIER_RESULTS
 
 
-@app.post("/api/eval/compare", response_model=list[ComparePointOut])
+@protected.post("/api/eval/compare", response_model=list[ComparePointOut])
 def compare_all_configs() -> list[ComparePointOut]:
     """Runs the static battery once against every registered config and
     returns each one's (ASR, Utility) point — the root CLAUDE.md's
@@ -324,7 +348,7 @@ def compare_all_configs() -> list[ComparePointOut]:
     return points
 
 
-@app.post("/api/eval/adaptive-run/{config}", response_model=AdaptiveRunOut)
+@protected.post("/api/eval/adaptive-run/{config}", response_model=AdaptiveRunOut)
 def run_adaptive(config: str, generations: int = 5) -> AdaptiveRunOut:
     """Runs the adaptive Attack Engine loop (retrieval-informed mutation,
     build order step 4) for `generations` rounds against `config`, and
@@ -387,3 +411,6 @@ def run_adaptive(config: str, generations: int = 5) -> AdaptiveRunOut:
             for r in results
         ],
     )
+
+
+app.include_router(protected)
