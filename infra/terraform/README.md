@@ -7,36 +7,29 @@ by this session** — this is real, billable cloud infrastructure, and
 provisioning it needs your GCP credentials and your explicit go-ahead
 each time, not something to run automatically.
 
-`terraform validate` passes (checked — catches config errors without
-needing GCP credentials). `terraform plan`/`apply` have not been run;
-they need your project set up first.
+`terraform validate` passes. Three things previously flagged as
+unverified guesses are now confirmed for real, against this project,
+2026-09-29 — not assumed:
 
-## What's genuinely unverified here
+1. **`boot_disk_image_family`** — the placeholder guess
+   (`common-cu124-ubuntu-2204-py310`) didn't exist. Ran
+   `gcloud compute images list --project deeplearning-platform-release
+   --filter="family~'common-cu'"` directly and got the real current
+   families (`common-cu129-ubuntu-2204-nvidia-580` /
+   `-2404-nvidia-580`); `variables.tf` now defaults to the confirmed
+   22.04 one. Still unconfirmed: whether CUDA 12.9/driver 580 keeps full
+   T4 (Turing, compute capability 7.5) support — check `nvidia-smi`
+   output after first boot.
+2. **`vllm_model`** (`Qwen/Qwen2.5-7B-Instruct-AWQ`) — checked directly:
+   exists, Apache 2.0, ungated.
+3. **GPU quota** — checked directly against `canary-510014`:
+   `PREEMPTIBLE_NVIDIA_T4_GPUS` limit=1, usage=0 in `us-central1`. Real
+   and sufficient for this config's 1x spot T4 request.
 
-Flagging these explicitly rather than presenting untested infra as if
-it's known-good:
-
-1. **`boot_disk_image_family`** (`variables.tf`) — GCP's Deep Learning
-   VM image family naming has changed since this project's context was
-   written. A search confirmed current families look like
-   `pytorch-2-9-cu129-ubuntu-2204-nvidia-580`, not the older
-   `common-cuXXX` scheme assumed here. The default value is a best
-   guess, **not verified to exist**. Before `apply`:
-   ```bash
-   gcloud compute images list --project deeplearning-platform-release \
-     --filter="family~'common-cu'" --show-deprecated
-   ```
-   and confirm whatever you pick actually supports T4 (compute
-   capability 7.5 / Turing — newer CUDA/driver stacks don't always keep
-   Turing support).
-2. **`vllm_model`** default (`Qwen/Qwen2.5-7B-Instruct-AWQ`) — exact HF
-   repo name not verified to currently exist, or its license terms.
-   Check `huggingface.co/Qwen` before relying on it.
-3. **GPU quota** — CLAUDE.md's guide says new GCP projects often start
-   at 0 GPU quota and approval can take days; you said this was already
-   requested/granted, but this config has never actually been applied
-   against your project to confirm the quota covers this exact request
-   (1x T4 in whatever zone you pick).
+Still unverified: exact spot pricing for T4 + n1-standard-4 (the
+$0.15–0.20/hr figure below is an estimate, not fetched from GCP's
+pricing API) — doesn't block anything since `max_runtime_hours` bounds
+worst-case cost regardless of the exact rate.
 
 ## Prerequisites (your part — I can't do these)
 

@@ -33,20 +33,19 @@ variable "gpu_count" {
 
 variable "boot_disk_image_family" {
   description = <<-EOT
-    UNVERIFIED — GCP's Deep Learning VM image family naming has changed
-    since this was written (confirmed via search: current families look
-    like "pytorch-2-9-cu129-ubuntu-2204-nvidia-580", not the older
-    "common-cuXXX" scheme this project's earlier context assumed).
-    Before terraform apply, run:
-      gcloud compute images list --project deeplearning-platform-release \
-        --filter="family~'common-cu'" --show-deprecated
-    and set this to whatever the current "Common" (framework-agnostic,
-    CUDA+drivers only) family actually is. Verify it supports T4
-    (compute capability 7.5 / Turing) specifically — newer CUDA/driver
-    stacks don't always keep Turing support.
+    CONFIRMED via `gcloud compute images list --project
+    deeplearning-platform-release --filter="family~'common-cu'"` on
+    2026-09-29: real current families are common-cu129-ubuntu-2204-
+    nvidia-580 and common-cu129-ubuntu-2404-nvidia-580 - not the
+    common-cuXXX-ubuntu-YYYY-pyZZZ scheme this project's earlier context
+    assumed (that exact family doesn't exist and would have failed
+    terraform apply). Picked the 22.04 variant for consistency with the
+    rest of this config. NOT yet confirmed that CUDA 12.9 / driver 580
+    still supports T4 (compute capability 7.5 / Turing) - check
+    `nvidia-smi` output after first boot.
   EOT
   type    = string
-  default = "common-cu124-ubuntu-2204-py310" # best guess, NOT verified — check before applying
+  default = "common-cu129-ubuntu-2204-nvidia-580"
 }
 
 variable "boot_disk_image_project" {
@@ -69,8 +68,9 @@ variable "vllm_model" {
   description = <<-EOT
     Model vLLM serves. AWQ/GPTQ quantized by default per the root
     CLAUDE.md's T4 note (compute capability 7.5 — stick to AWQ/GPTQ, not
-    the newest Ampere-only quant kernels). UNVERIFIED exact HF repo name
-    — check it still exists and its license before applying.
+    the newest Ampere-only quant kernels). Confirmed via direct check on
+    2026-09-29: this repo exists, is Apache 2.0 licensed, and is ungated
+    (no HF token needed).
   EOT
   type    = string
   default = "Qwen/Qwen2.5-7B-Instruct-AWQ"
