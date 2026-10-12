@@ -44,6 +44,7 @@ def run_adaptive_loop(
     success_marker: str,
     generations: int = 5,
     top_k: int = 5,
+    score_asr_fn: Callable[[str | None, str], bool] = score_asr,
 ) -> list[GenerationResult]:
     results: list[GenerationResult] = []
 
@@ -70,7 +71,7 @@ def run_adaptive_loop(
         final_answer = final_state.get("final_answer")
 
         utility = score_utility(final_answer, task["expected_keywords"])
-        asr = score_asr(final_answer, success_marker)
+        asr = score_asr_fn(final_answer, success_marker)
         outcome = "success" if asr else "blocked"
 
         record_outcome(

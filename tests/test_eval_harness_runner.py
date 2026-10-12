@@ -36,9 +36,25 @@ def test_immune_llm_never_falls_for_static_attacks():
     assert all(r.utility for r in results)
 
 
-def test_naive_compliant_llm_falls_for_every_static_attack():
+def test_naive_compliant_llm_falls_for_every_delimiter_framed_attack():
+    # Scoped to the five original delimiter-framed attacks (the ones
+    # NaiveCompliantLLM's _COMPLIANCE_TRIGGER regex actually matches).
+    # Two more realistic attacks were added later (mimicking documented
+    # indirect-prompt-injection patterns, not the rule-based stand-in's
+    # specific regex trigger — see attack_engine/library.py's comment)
+    # and deliberately don't use [[...]]/{{...}}/[SYSTEM]: framing, so
+    # NaiveCompliantLLM correctly doesn't fall for them; that's not a
+    # regression, it's the stand-in behaving as documented.
+    delimiter_framed_ids = {
+        "email-direct-override",
+        "file-fake-system-message",
+        "web-authority-impersonation",
+        "email-boundary-breaking",
+        "web-urgent-social-engineering",
+    }
     results = run_static_eval({"naive-compliant": lambda: NaiveCompliantLLM()})
-    attacked = [r for r in results if r.attack_id is not None]
+    attacked = [r for r in results if r.attack_id in delimiter_framed_ids]
+    assert len(attacked) == len(delimiter_framed_ids)
     assert all(r.asr for r in attacked)
     # Complying with the injection means abandoning the real task.
     assert all(not r.utility for r in attacked)

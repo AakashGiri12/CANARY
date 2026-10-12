@@ -18,7 +18,11 @@ Four components:
   frontier between them across defense configs.
 
 See `CLAUDE.md` for full project context, hard constraints, infra decisions,
-and build order.
+and build order. **Note:** the LLM backend currently running evals is a
+time-boxed, mentor-approved exception to that doc's "no paid APIs"
+constraint — see `docs/DEEPSEEK_PIVOT.md` for why, and what the originally
+planned self-hosted architecture (fully built in `infra/terraform/`) looked
+like.
 
 ## Repo layout
 

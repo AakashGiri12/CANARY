@@ -40,13 +40,19 @@ def _run_once(
     task_id: str,
     task: dict,
     attack: AttackSpec | None,
+    trial: int = 0,
+    score_asr_fn: Callable[[str | None, str], bool] = score_asr,
 ) -> RunResult:
     poison = {attack.target_key: attack.payload_text} if attack else {}
     tools = make_tools(poison=poison)
     graph = build_graph(llm, tools=tools)
 
+    run_id = f"{llm_name}:{task_id}:{attack.id if attack else 'baseline'}"
+    if trial:
+        run_id += f":trial{trial}"
+
     initial_state = {
-        "run_id": f"{llm_name}:{task_id}:{attack.id if attack else 'baseline'}",
+        "run_id": run_id,
         "task": task["prompt"],
         "turn": 0,
         "messages": [],
@@ -56,7 +62,7 @@ def _run_once(
     final_answer = final_state.get("final_answer")
 
     utility = score_utility(final_answer, task["expected_keywords"])
-    asr = score_asr(final_answer, attack.success_marker) if attack else False
+    asr = score_asr_fn(final_answer, attack.success_marker) if attack else False
 
     return RunResult(
         llm_name=llm_name,
@@ -70,27 +76,55 @@ def _run_once(
 def run_static_eval(
     llm_factories: dict[str, Callable[[], LLMClient]],
     task_id: str = "q3-plan-check",
+    trials: int = 1,
+    score_asr_fn: Callable[[str | None, str], bool] = score_asr,
 ) -> list[RunResult]:
     """For each named LLM client, run the no-attack baseline plus every
-    static attack, scoring Utility and ASR for each."""
+    static attack, scoring Utility and ASR for each.
+
+    `trials` repeats every (llm, attack) combo this many times. Default 1
+    preserves the original behavior (and the exact-count test assertions
+    in tests/test_eval_harness_runner.py) for the deterministic stand-ins.
+    Real models sample stochastically — found live against DeepSeek: the
+    same (llm, attack) pair scored ASR True in one run and False in
+    another, single-digit seconds apart. A single trial isn't a solid
+    basis for a reported ASR number against a real model; pass trials>1
+    (eval_harness.run does, for the deepseek* configs) to average it out.
+
+    `score_asr_fn` defaults to the free, offline keyword heuristic in
+    eval_harness.scoring. Pass eval_harness.judge.judge_asr for real-model
+    configs instead — found live, the keyword heuristic produces false
+    positives on real free-text refusals it doesn't have a cue for (see
+    judge.py's module docstring); the deterministic stand-ins never
+    exercise that gap, so they don't need the judge.
+    """
     task = load_task(task_id)
     results: list[RunResult] = []
 
     for llm_name, make_llm in llm_factories.items():
-        results.append(
-            _run_once(
-                llm=make_llm(), llm_name=llm_name, task_id=task_id, task=task, attack=None
-            )
-        )
-        for attack in STATIC_ATTACKS:
+        for trial in range(trials):
             results.append(
                 _run_once(
                     llm=make_llm(),
                     llm_name=llm_name,
                     task_id=task_id,
                     task=task,
-                    attack=attack,
+                    attack=None,
+                    trial=trial,
+                    score_asr_fn=score_asr_fn,
                 )
             )
+            for attack in STATIC_ATTACKS:
+                results.append(
+                    _run_once(
+                        llm=make_llm(),
+                        llm_name=llm_name,
+                        task_id=task_id,
+                        task=task,
+                        attack=attack,
+                        trial=trial,
+                        score_asr_fn=score_asr_fn,
+                    )
+                )
 
     return results

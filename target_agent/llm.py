@@ -205,3 +205,35 @@ class VLLMChatClient:
                 tool=call.function.name, args=json.loads(call.function.arguments)
             )
         return FinalAnswerAction(text=choice.content or "")
+
+
+class DeepSeekChatClient(VLLMChatClient):
+    """MENTOR-APPROVED, TIME-CONSTRAINED DEVIATION from the root
+    CLAUDE.md's "everything free / no paid APIs / no local LLM serving,
+    all inference self-hosted in the cloud" constraints. Full rationale,
+    date, and scope: docs/DEEPSEEK_PIVOT.md — read that before touching
+    this class.
+
+    The originally planned architecture is VLLMChatClient above, serving
+    Qwen2.5-7B-AWQ from a self-hosted GCP spot T4 VM (infra/terraform/).
+    That work is intentionally left in place, untouched, and still fully
+    Terraform-validated — it's what gets presented as "the design" in the
+    final PPT. This class exists only because that VM kept hitting spot
+    preemption against a hard "working, tested, validated by tomorrow"
+    deadline, and DeepSeek's API happens to be OpenAI-SDK-compatible, so
+    the only thing that actually differs from VLLMChatClient is which
+    endpoint/model/key get passed in — hence the subclass, not a rewrite.
+    Swapping back to the self-hosted VM later is a one-line change at
+    whatever call site constructs this (or just re-registering the
+    `deepseek*` names in eval_harness/llm_registry.py to build a
+    VLLMChatClient instead).
+    """
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str = "deepseek-chat",
+        base_url: str = "https://api.deepseek.com",
+    ):
+        super().__init__(base_url=base_url, model=model, api_key=api_key)

@@ -82,7 +82,14 @@ def test_score_task_computes_and_is_idempotent(unique_model_defense):
             payload_text=None,
         )
     )
-    score_task.apply(kwargs=dict(run_id=run_id, task_id="q3-plan-check", success_marker=None))
+    score_task.apply(
+        kwargs=dict(
+            run_id=run_id,
+            task_id="q3-plan-check",
+            success_marker=None,
+            llm_name="scripted-immune",
+        )
+    )
 
     with get_session() as session:
         scores = session.scalars(select(Score).where(Score.run_id == run_id)).all()
@@ -90,7 +97,14 @@ def test_score_task_computes_and_is_idempotent(unique_model_defense):
         assert scores[0].utility is True
         assert scores[0].asr is False
 
-    score_task.apply(kwargs=dict(run_id=run_id, task_id="q3-plan-check", success_marker=None))
+    score_task.apply(
+        kwargs=dict(
+            run_id=run_id,
+            task_id="q3-plan-check",
+            success_marker=None,
+            llm_name="scripted-immune",
+        )
+    )
     with get_session() as session:
         scores = session.scalars(select(Score).where(Score.run_id == run_id)).all()
         assert len(scores) == 1  # no duplicate
@@ -101,7 +115,12 @@ def test_score_task_fails_if_run_not_completed(unique_model_defense):
     run_id = f"score-missing-{defense_config}"
 
     result = score_task.apply(
-        kwargs=dict(run_id=run_id, task_id="q3-plan-check", success_marker=None)
+        kwargs=dict(
+            run_id=run_id,
+            task_id="q3-plan-check",
+            success_marker=None,
+            llm_name="scripted-immune",
+        )
     )
     assert result.failed()
 

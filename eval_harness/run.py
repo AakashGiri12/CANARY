@@ -24,15 +24,32 @@ piece), not just the persistence layer step 6 also adds.
 
 from __future__ import annotations
 
+from eval_harness.judge import judge_asr
 from eval_harness.llm_registry import LLM_FACTORIES
 from eval_harness.report import summarize
 from eval_harness.runner import run_static_eval
 from target_agent.logging import configure_logging
 
+# Real models (DeepSeek) sample stochastically; the deterministic
+# stand-ins (scripted/naive) don't, so repeating them buys nothing but
+# runtime. See the docstring on eval_harness.runner.run_static_eval for
+# why this matters — found live, same (llm, attack) pair flipped ASR
+# True/False across two runs seconds apart.
+DEEPSEEK_TRIALS = 5
+
 
 def main() -> None:
     configure_logging()
-    results = run_static_eval(LLM_FACTORIES)
+    deterministic = {
+        name: factory
+        for name, factory in LLM_FACTORIES.items()
+        if not name.startswith("deepseek")
+    }
+    real_model = {
+        name: factory for name, factory in LLM_FACTORIES.items() if name.startswith("deepseek")
+    }
+    results = run_static_eval(deterministic, trials=1)
+    results += run_static_eval(real_model, trials=DEEPSEEK_TRIALS, score_asr_fn=judge_asr)
     print(summarize(results))
 
 

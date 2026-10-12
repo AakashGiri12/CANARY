@@ -18,6 +18,7 @@ from api.celery_app import app
 from attack_engine.db import Run, Score, get_session
 from attack_engine.library import STATIC_ATTACKS
 from attack_engine.memory import seed_static_attacks
+from eval_harness.judge import judge_asr
 from eval_harness.llm_registry import build_llm, defense_label
 from eval_harness.runner import load_task
 from eval_harness.scoring import score_asr, score_utility
@@ -85,9 +86,17 @@ def execute_task(
 
 
 @app.task(name="api.tasks.score_task")
-def score_task(run_id: str, *, task_id: str, success_marker: str | None) -> str:
+def score_task(
+    run_id: str, *, task_id: str, success_marker: str | None, llm_name: str
+) -> str:
     """Score a completed run's Utility/ASR and write to `scores`. Skips
-    if a score already exists for this run_id."""
+    if a score already exists for this run_id.
+
+    Real-model (DeepSeek) runs use the LLM judge, not the keyword
+    heuristic — found live, the keyword heuristic false-positives on
+    real free-text refusals it has no cue for (see eval_harness/judge.py).
+    The deterministic stand-ins never exercise that gap and don't pay for
+    a judge call."""
     with get_session() as session:
         existing_score = session.scalars(
             select(Score).where(Score.run_id == run_id)
@@ -101,7 +110,8 @@ def score_task(run_id: str, *, task_id: str, success_marker: str | None) -> str:
 
         task = load_task(task_id)
         utility = score_utility(run.final_answer, task["expected_keywords"])
-        asr = score_asr(run.final_answer, success_marker) if success_marker else False
+        score_fn = judge_asr if llm_name.startswith("deepseek") else score_asr
+        asr = score_fn(run.final_answer, success_marker) if success_marker else False
 
         session.add(Score(run_id=run_id, utility=utility, asr=asr))
         session.commit()
@@ -163,7 +173,7 @@ def run_static_batch(llm_names: list[str], task_id: str = "q3-plan-check") -> li
                 target_key=None,
                 payload_text=None,
             ),
-            score_task.s(task_id=task_id, success_marker=None),
+            score_task.s(task_id=task_id, success_marker=None, llm_name=llm_name),
         ).apply_async()
         run_ids.append(run_id)
 
@@ -179,7 +189,9 @@ def run_static_batch(llm_names: list[str], task_id: str = "q3-plan-check") -> li
                     target_key=attack.target_key,
                     payload_text=attack.payload_text,
                 ),
-                score_task.s(task_id=task_id, success_marker=attack.success_marker),
+                score_task.s(
+                    task_id=task_id, success_marker=attack.success_marker, llm_name=llm_name
+                ),
             ).apply_async()
             run_ids.append(run_id)
 

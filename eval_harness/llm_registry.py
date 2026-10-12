@@ -7,16 +7,37 @@ just a name string.
 
 from __future__ import annotations
 
+import os
 from typing import Callable
+
+from dotenv import load_dotenv
 
 from defense_layer.prompt_defense import PromptDefendedLLM
 from target_agent.llm import (
+    DeepSeekChatClient,
     FinalAnswerAction,
     LLMClient,
     NaiveCompliantLLM,
     ScriptedLLM,
     ToolCallAction,
 )
+
+# Loads .env (gitignored) once at import time so DEEPSEEK_API_KEY is
+# available via os.environ without every caller remembering to export it.
+# See docs/DEEPSEEK_PIVOT.md for why a real paid API is in this registry
+# at all — mentor-approved, time-constrained deviation from CLAUDE.md.
+load_dotenv()
+
+
+def _deepseek_api_key() -> str:
+    key = os.environ.get("DEEPSEEK_API_KEY")
+    if not key:
+        raise RuntimeError(
+            "DEEPSEEK_API_KEY not set. Put it in a .env file at the repo "
+            "root (gitignored): DEEPSEEK_API_KEY=sk-... — see "
+            "docs/DEEPSEEK_PIVOT.md."
+        )
+    return key
 
 
 def _immune_plan() -> list:
@@ -41,6 +62,13 @@ LLM_FACTORIES: dict[str, Callable[[], LLMClient]] = {
     "scripted-immune+defense": lambda: PromptDefendedLLM(ScriptedLLM(plan=_immune_plan())),
     "naive-compliant": lambda: NaiveCompliantLLM(),
     "naive-compliant+defense": lambda: PromptDefendedLLM(NaiveCompliantLLM()),
+    # Real model, real ASR/Utility numbers — see docs/DEEPSEEK_PIVOT.md.
+    # Not the originally planned backend (that's VLLMChatClient /
+    # infra/terraform/), but the same LLMClient interface either way.
+    "deepseek": lambda: DeepSeekChatClient(api_key=_deepseek_api_key()),
+    "deepseek+defense": lambda: PromptDefendedLLM(
+        DeepSeekChatClient(api_key=_deepseek_api_key())
+    ),
 }
 
 
