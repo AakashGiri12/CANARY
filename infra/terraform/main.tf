@@ -67,7 +67,14 @@ resource "google_compute_instance" "vllm" {
     install-nvidia-driver = "True"
     vllm-model            = var.vllm_model
     hf-token              = var.huggingface_token
-    max-runtime-hours     = tostring(var.max_runtime_hours)
+    # Integer MINUTES, computed here in Terraform (which has real math),
+    # not left to bash. Real bug found live: `shutdown -h "+$(( 0.15 *
+    # 60 ))"` fails with "0.15: syntax error: invalid arithmetic
+    # operator" — bash's $(( )) is integer-only. The shutdown timer
+    # never actually scheduled on either real attempt; only GCP spot
+    # preemption happened to tear down the first VM. Passing a
+    # pre-computed integer here eliminates the whole bug class.
+    max-runtime-minutes = tostring(floor(var.max_runtime_hours * 60))
   }
 
   metadata_startup_script = file("${path.module}/startup-script.sh")
